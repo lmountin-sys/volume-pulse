@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VOLUME PULSE</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Barlow+Condensed:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:     #050709;
+    --panel:  #080c10;
+    --b1:     #0f1923;
+    --b2:     #1c2a38;
+    --cyan:   #00d4ff;
+    --cyanD:  #00d4ff18;
+    --cyanM:  #00d4ff44;
+    --green:  #00e5a0;
+    --yellow: #f0b429;
+    --red:    #e05252;
+    --text:   #d0e0f0;
+    --muted:  #3a4e60;
+    --muted2: #5a7080;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { height:100%; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'IBM Plex Mono', monospace;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  /* grid bg */
+  body::before {
+    content:'';
+    position:fixed; inset:0;
+    background-image:
+      linear-gradient(var(--b1) 1px, transparent 1px),
+      linear-gradient(90deg, var(--b1) 1px, transparent 1px);
+    background-size: 48px 48px;
+    pointer-events:none; z-index:0;
+  }
+  body > * { position:relative; z-index:1; }
+
+  /* ── Header ── */
+  header {
+    display:flex; align-items:center; justify-content:space-between;
+    padding: 12px 24px;
+    border-bottom: 1px solid var(--b2);
+    background: rgba(5,7,9,0.95);
+    flex-shrink: 0;
+  }
+  .wordmark {
+    font-family:'Barlow Condensed',sans-serif;
+    font-weight:700; font-size:22px; letter-spacing:5px; color:#fff;
+  }
+  .wordmark span { color:var(--cyan); }
+
+  .hdr-right { display:flex; align-items:center; gap:20px; }
+  .live-pill { display:flex; align-items:center; gap:6px; font-size:10px; letter-spacing:2px; color:var(--cyan); }
+  .live-dot { width:6px;height:6px;border-radius:50%;background:var(--cyan);animation:blink 1.4s ease-in-out infinite; }
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+  .hdr-meta { font-size:10px; color:var(--muted2); letter-spacing:1px; }
+
+  /* ── Range tabs ── */
+  .range-tabs {
+    display:flex; gap:2px;
+  }
+  .rtab {
+    font-size:10px; letter-spacing:1.5px; padding:5px 10px;
+    background:transparent; border:1px solid var(--b2);
+    color:var(--muted2); cursor:pointer; text-transform:uppercase;
+    transition:all .15s; border-radius:2px;
+  }
+  .rtab:hover { color:var(--text); border-color:var(--muted2); }
+  .rtab.active { color:var(--cyan); border-color:var(--cyan); background:var(--cyanD); }
+
+  /* ── Hero strip ── */
+  .hero {
+    display:grid; grid-template-columns:repeat(5,1fr);
+    gap:1px; background:var(--b2);
+    border-bottom:1px solid var(--b2);
+    flex-shrink:0;
+  }
+  .hs {
+    background:var(--panel); padding:14px 20px;
+    position:relative; overflow:hidden;
+  }
+  .hs::after {
+    content:''; position:absolute; bottom:0;left:0;right:0;
+    height:2px; background:var(--cyan);
+    transform:scaleX(0); transition:transform .5s ease; transform-origin:left;
+  }
+  .hs.ready::after { transform:scaleX(1); }
+  .hs-lbl { font-size:9px; letter-spacing:2px; color:var(--muted2); text-transform:uppercase; margin-bottom:6px; }
+  .hs-val {
+    font-family:'Barlow Condensed',sans-serif;
+    font-size:30px; font-weight:600; letter-spacing:1px; color:#fff; line-height:1;
+  }
+  .hs-val.cyan  { color:var(--cyan); }
+  .hs-val.green { color:var(--green); }
+  .hs-val.yellow{ color:var(--yellow); }
+  .hs-val.red   { color:var(--red); }
+  .hs-sub { font-size:9px; color:var(--muted); letter-spacing:1px; margin-top:3px; }
+
+  /* ── Signal bar ── */
+  .signal {
+    display:none; align-items:center; gap:10px;
+    padding:9px 24px; font-size:10px; letter-spacing:1.5px; text-transform:uppercase;
+    border-bottom:1px solid; flex-shrink:0;
+  }
+  .signal.bull { background:rgba(0,229,160,.04); border-color:rgba(0,229,160,.2); color:var(--green); }
+  .signal.bear { background:rgba(224,82,82,.04); border-color:rgba(224,82,82,.2); color:var(--red); }
+  .signal.neut { background:rgba(240,180,41,.04); border-color:rgba(240,180,41,.2); color:var(--yellow); }
+  .sig-dot { width:6px;height:6px;border-radius:50%;background:currentColor;flex-shrink:0; }
+
+  /* ── Main body ── */
+  .body {
+    display:grid; grid-template-columns:1fr 300px;
+    flex:1; overflow:hidden;
+  }
+
+  /* ── Left ── */
+  .left {
+    display:flex; flex-direction:column;
+    border-right:1px solid var(--b2);
+    overflow:hidden;
+  }
+
+  .chart-wrap {
+    flex:1; padding:16px 24px 8px;
+    display:flex; flex-direction:column;
+    min-height:0;
+  }
+  .chart-hdr {
+    display:flex; align-items:center; justify-content:space-between;
+    margin-bottom:10px;
+  }
+  .chart-title {
+    font-family:'Barlow Condensed',sans-serif;
+    font-size:12px; font-weight:500; letter-spacing:3px;
+    color:var(--muted2); text-transform:uppercase;
+  }
+  .chart-note { font-size:9px; color:var(--muted); letter-spacing:1px; }
+
+  canvas { display:block; width:100%; }
+  #mainCanvas { flex:1; min-height:0; }
+
+  .divider { height:1px; background:var(--b2); margin:0 24px; flex-shrink:0; }
+
+  .share-wrap {
+    height:120px; padding:10px 24px 8px;
+    flex-shrink:0;
+  }
+
+  /* day strip */
+  .strip {
+    display:flex; gap:4px; padding:6px 24px 10px;
+    overflow-x:auto; scrollbar-width:none; flex-shrink:0;
+  }
+  .strip::-webkit-scrollbar{display:none}
+  .dc {
+    flex:0 0 auto; display:flex; flex-direction:column; align-items:center;
+    gap:3px; min-width:48px; padding:6px 5px;
+    border:1px solid transparent; border-radius:3px;
+    cursor:default; transition:all .12s;
+  }
+  .dc:hover { border-color:var(--b2); background:var(--panel); }
+  .dc.now { border-color:var(--cyanM); background:var(--cyanD); }
+  .dc-date { font-size:8px; color:var(--muted2); letter-spacing:.5px; white-space:nowrap; }
+  .dc-vol {
+    font-family:'Barlow Condensed',sans-serif;
+    font-size:14px; font-weight:600; color:#fff;
+  }
+  .dc.now .dc-vol { color:var(--cyan); }
+  .dc-pct { font-size:8px; }
+  .dc-bar { width:28px;height:2px;background:var(--b2);border-radius:1px;overflow:hidden; }
+  .dc-fill { height:100%;border-radius:1px;background:var(--cyan); }
+
+  /* ── Right sidebar ── */
+  .right {
+    overflow-y:auto; padding:16px 16px;
+    display:flex; flex-direction:column; gap:20px;
+  }
+  .right::-webkit-scrollbar{width:4px}
+  .right::-webkit-scrollbar-track{background:transparent}
+  .right::-webkit-scrollbar-thumb{background:var(--b2);border-radius:2px}
+
+  .sec-title {
+    font-size:8px; letter-spacing:3px; color:var(--muted2); text-transform:uppercase;
+    padding-bottom:8px; border-bottom:1px solid var(--b2);
+    display:flex; align-items:center; justify-content:space-between;
+    margin-bottom:10px;
+  }
+
+  /* vol trend indicator */
+  .trend-box {
+    background:var(--panel); border:1px solid var(--b2);
+    border-radius:3px; padding:12px;
+  }
+  .trend-score {
+    font-family:'Barlow Condensed',sans-serif;
+    font-size:48px; font-weight:700; letter-spacing:3px;
+    line-height:1; margin-bottom:2px;
+  }
+  .trend-label { font-size:9px; color:var(--muted2); letter-spacing:2px; text-transform:uppercase; }
+  .trend-bars { display:flex; flex-direction:column; gap:5px; margin-top:10px; }
+  .tb-row { display:flex; align-items:center; gap:8px; }
+  .tb-lbl { font-size:8px; color:var(--muted2); letter-spacing:1px; width:80px; flex-shrink:0; }
+  .tb-track { flex:1; height:3px; background:var(--b2); border-radius:2px; overflow:hidden; }
+  .tb-fill { height:100%; border-radius:2px; background:var(--cyan); transition:width .6s ease; }
+  .tb-val { font-size:9px; color:var(--text); width:36px; text-align:right; }
+
+  /* week rows */
+  .week-rows { display:flex; flex-direction:column; gap:3px; }
+  .wr {
+    display:grid; grid-template-columns:60px 1fr auto;
+    align-items:center; gap:6px; padding:6px 8px;
+    background:var(--panel); border:1px solid var(--b1);
+    border-radius:2px;
+  }
+  .wr-date { font-size:8px; color:var(--muted2); letter-spacing:.5px; }
+  .wr-vol { font-size:9px; color:var(--text); }
+  .wr-badge {
+    font-family:'Barlow Condensed',sans-serif;
+    font-size:11px; font-weight:600; letter-spacing:1.5px;
+    padding:1px 6px; border-radius:2px;
+  }
+  .wr-badge.UP   { color:var(--green); background:rgba(0,229,160,.1); }
+  .wr-badge.DOWN { color:var(--red);   background:rgba(224,82,82,.1); }
+  .wr-badge.FLAT { color:var(--yellow);background:rgba(240,180,41,.1); }
+
+  /* confluence box */
+  .conf-box {
+    background:var(--panel); border:1px solid var(--b2);
+    border-radius:3px; padding:12px;
+  }
+  .conf-lbl { font-size:8px; color:var(--muted2); letter-spacing:2px; text-transform:uppercase; margin-bottom:8px; }
+  .conf-text {
+    font-family:'Barlow Condensed',sans-serif;
+    font-size:14px; font-weight:400; line-height:1.6; color:var(--text);
+  }
+  .conf-text .hi { color:var(--cyan); }
+  .conf-text .go { color:var(--green); }
+  .conf-text .no { color:var(--red); }
+  .conf-text .maybe { color:var(--yellow); }
+
+  /* ── Loading ── */
+  #loader {
+    position:fixed; inset:0;
+    background:var(--bg); z-index:999;
+    display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:14px;
+  }
+  #loader.gone { display:none; }
+  .ld-title {
+    font-family:'Barlow Condensed',sans-serif;
+    font-size:20px; font-weight:700; letter-spacing:6px; color:var(--cyan);
+  }
+  .ld-sub { font-size:10px; color:var(--muted2); letter-spacing:2px; }
+  .ld-bar { width:240px;height:2px;background:var(--b2);border-radius:1px;overflow:hidden; }
+  .ld-fill { height:100%;background:var(--cyan);border-radius:1px;transition:width .3s ease;width:0; }
+  .ld-status { font-size:9px; color:var(--muted); letter-spacing:2px; min-height:12px; }
+
+  /* error */
+  .err {
+    display:none; margin:12px 24px; padding:10px 14px;
+    background:rgba(224,82,82,.06); border:1px solid rgba(224,82,82,.2);
+    border-radius:3px; font-size:10px; color:var(--red); letter-spacing:1px;
+  }
+</style>
+</head>
+<body>
+
+<div id="loader">
+  <div class="ld-title">VOLUME PULSE</div>
+  <div class="ld-sub">Fetching 2 years of small cap flow data</div>
+  <div class="ld-bar"><div class="ld-fill" id="ldFill"></div></div>
+  <div class="ld-status" id="ldStatus">initializing...</div>
+</div>
+
+<header>
+  <div class="wordmark">VOLUME <span>PULSE</span></div>
+  <div class="hdr-right">
+    <div class="range-tabs" id="rangeTabs">
+      <button class="rtab" data-r="20"  onclick="setRange(20,this)">20D</button>
+      <button class="rtab" data-r="60"  onclick="setRange(60,this)">3M</button>
+      <button class="rtab" data-r="120" onclick="setRange(120,this)">6M</button>
+      <button class="rtab active" data-r="252" onclick="setRange(252,this)">1Y</button>
+      <button class="rtab" data-r="504" onclick="setRange(504,this)">2Y</button>
+    </div>
+    <div class="live-pill"><div class="live-dot"></div>LIVE</div>
+    <div class="hdr-meta" id="hdrMeta">—</div>
+  </div>
+</header>
+
+<div class="hero" id="hero">
+  <div class="hs" id="h0"><div class="hs-lbl">IWM Dollar Vol (Latest)</div><div class="hs-val cyan">—</div><div class="hs-sub">small cap proxy</div></div>
+  <div class="hs" id="h1"><div class="hs-lbl">vs 20-Day Avg</div><div class="hs-val">—</div><div class="hs-sub">relative strength</div></div>
+  <div class="hs" id="h2"><div class="hs-lbl">vs 1Y Avg</div><div class="hs-val">—</div><div class="hs-sub">long-term baseline</div></div>
+  <div class="hs" id="h3"><div class="hs-lbl">IWM/SPY Ratio</div><div class="hs-val">—</div><div class="hs-sub">small vs large cap</div></div>
+  <div class="hs" id="h4"><div class="hs-lbl">7-Day Trend</div><div class="hs-val">—</div><div class="hs-sub">momentum direction</div></div>
+</div>
+
+<div class="signal" id="signal">
+  <div class="sig-dot"></div>
+  <span id="sigText">—</span>
+</div>
+
+<div class="err" id="errBox"></div>
+
+<div class="body">
+  <div class="left">
+    <div class="chart-wrap">
+      <div class="chart-hdr">
+        <div class="chart-title">Small Cap Dollar Volume (IWM proxy)</div>
+        <div class="chart-note" id="chartNote">—</div>
+      </div>
+      <canvas id="mainCanvas"></canvas>
+    </div>
+
+    <div class="strip" id="strip"></div>
+
+    <div class="divider"></div>
+
+    <div class="share-wrap">
+      <div class="chart-hdr" style="margin-bottom:6px">
+        <div class="chart-title">IWM / SPY Volume Ratio</div>
+        <div class="chart-note">small cap flow vs large cap — rising = money rotating in</div>
+      </div>
+      <canvas id="ratioCanvas" style="height:80px"></canvas>
+    </div>
+  </div>
+
+  <div class="right">
+
+    <div>
+      <div class="sec-title">Vol Trend Score</div>
+      <div class="trend-box">
+        <div class="trend-score" id="trendScore" style="color:var(--cyan)">—</div>
+        <div class="trend-label" id="trendLabel">loading...</div>
+        <div class="trend-bars" id="trendBars"></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="sec-title">Confluence Read</div>
+      <div class="conf-box">
+        <div class="conf-lbl">What this means for you</div>
+        <div class="conf-text" id="confText">Loading...</div>
+      </div>
+    </div>
+
+    <div>
+      <div class="sec-title">Weekly Vol History <span style="color:var(--muted)">last 16w</span></div>
+      <div class="week-rows" id="weekRows"></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const KEY = 'aefQjcStxBnOQPsl3nMrtYDlrbmdCCPi';
+const CACHE_KEY = 'volpulse_v3';
+const C = { cyan:'#00d4ff', green:'#00e5a0', yellow:'#f0b429', red:'#e05252', muted:'#3a4e60', m2:'#5a7080', b2:'#1c2a38' };
+
+let ALL_DATA = []; // full 2yr array [{date, iwmVol, spyVol, ratio, iwmClose, spyClose}]
+let viewRange = 252;
+
+// ── Formatting ──────────────────────────────────────────────────────────────
+function fmtV(n) {
+  if(n>=1e9) return (n/1e9).toFixed(2)+'B';
+  if(n>=1e6) return (n/1e6).toFixed(0)+'M';
+  return n.toFixed(0);
+}
+function fmtVs(n) {
+  if(n>=1e9) return (n/1e9).toFixed(1)+'B';
+  if(n>=1e6) return (n/1e6).toFixed(0)+'M';
+  return n.toFixed(0);
+}
+function pct(n,d) { return ((n-d)/d*100); }
+function pctStr(n,d) { const p=pct(n,d); return (p>=0?'+':'')+p.toFixed(1)+'%'; }
+function clrPct(n,d) { const p=pct(n,d); return p>=10?'green':p>=-5?'yellow':'red'; }
+
+// ── Date helpers ─────────────────────────────────────────────────────────────
+function today() {
+  // go back 1 to ensure market closed
+  const d = new Date(); d.setDate(d.getDate()-1);
+  return d.toISOString().split('T')[0];
+}
+function daysAgo(n) {
+  // extra buffer for weekends/holidays
+  const d = new Date(); d.setDate(d.getDate() - n - 100);
+  return d.toISOString().split('T')[0];
+}
+
+// ── Fetch a ticker's full daily history ──────────────────────────────────────
+async function fetchTicker(ticker, from, to) {
+  const url = `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/1/day/${from}/${to}?adjusted=true&sort=asc&limit=5000&apiKey=${KEY}`;
+  const res = await fetch(url);
+  const data = await res.json();
+  if(data.status === 'OK' || data.resultsCount > 0) return data.results || [];
+  return [];
+}
+
+// ── Load & merge ─────────────────────────────────────────────────────────────
+async function loadData() {
+  setLD(10, 'checking cache...');
+
+  // Check localStorage cache (refreshed daily)
+  const cached = loadCache();
+  if(cached) {
+    ALL_DATA = cached;
+    setLD(100, 'loaded from cache');
+    setTimeout(boot, 200);
+    return;
+  }
+
+  setLD(15, 'fetching IWM (small cap ETF)...');
+  const from = daysAgo(520); // ~2 years + buffer
+  const to   = today();
+
+  let iwmRaw, spyRaw;
+  try {
+    iwmRaw = await fetchTicker('IWM', from, to);
+    setLD(55, 'fetching SPY (market proxy)...');
+    await new Promise(r => setTimeout(r, 250)); // rate limit buffer
+    spyRaw = await fetchTicker('SPY', from, to);
+  } catch(e) {
+    showErr('Network error fetching data. Make sure you opened this file in a browser (not the Claude preview). ' + e.message);
+    return;
+  }
+
+  setLD(85, 'merging & calculating...');
+
+  // Build lookup
+  const spyMap = {};
+  spyRaw.forEach(d => { spyMap[d.t] = d; });
+
+  // Merge on date
+  const merged = [];
+  iwmRaw.forEach(d => {
+    const spy = spyMap[d.t];
+    if(!spy) return;
+    const iwmVol = d.v * d.vw;
+    const spyVol = spy.v * spy.vw;
+    merged.push({
+      ts: d.t,
+      date: new Date(d.t).toISOString().split('T')[0],
+      iwmVol,
+      spyVol,
+      ratio: spyVol > 0 ? iwmVol / spyVol : 0,
+      iwmClose: d.c,
+      spyClose: spy.c,
+    });
+  });
+
+  // Sort ascending
+  merged.sort((a,b) => a.ts - b.ts);
+
+  // Keep last ~504 trading days
+  ALL_DATA = merged.slice(-504);
+  saveCache(ALL_DATA);
+
+  setLD(100, `loaded ${ALL_DATA.length} trading days`);
+  setTimeout(boot, 300);
+}
+
+// ── Cache ────────────────────────────────────────────────────────────────────
+function saveCache(data) {
+  try {
+    const payload = { date: new Date().toDateString(), data };
+    localStorage.setItem(CACHE_KEY, JSON.stringify(payload));
+  } catch(e) {}
+}
+function loadCache() {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if(!raw) return null;
+    const p = JSON.parse(raw);
+    // Invalidate if not from today
+    if(p.date !== new Date().toDateString()) return null;
+    return p.data;
+  } catch(e) { return null; }
+}
+
+// ── Boot (render everything) ─────────────────────────────────────────────────
+function boot() {
+  document.getElementById('loader').classList.add('gone');
+  document.getElementById('hdrMeta').textContent = 'Updated ' + new Date().toLocaleTimeString();
+  renderAll();
+}
+
+function getView() {
+  return ALL_DATA.slice(-viewRange);
+}
+
+function renderAll() {
+  const data = getView();
+  if(!data.length) return;
+  updateHero(data);
+  updateSignal(data);
+  drawMain(data);
+  drawRatio(data);
+  renderStrip(data);
+  renderWeekRows(data);
+  updateTrendScore(data);
+  updateConf(data);
+  document.getElementById('chartNote').textContent =
+    `${data[0].date} → ${data[data.length-1].date}  (${data.length} trading days)`;
+}
+
+function setRange(r, btn) {
+  viewRange = r;
+  document.querySelectorAll('.rtab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderAll();
+}
+
+// ── Hero stats ───────────────────────────────────────────────────────────────
+function updateHero(data) {
+  const last  = data[data.length-1];
+  const avg20 = avg(data.slice(-20).map(d=>d.iwmVol));
+  const avg252= avg(data.slice(-252).map(d=>d.iwmVol));
+  const last7 = data.slice(-7).map(d=>d.iwmVol);
+  const trend = last7[last7.length-1] > last7[0] ? '↑ RISING' : '↓ FALLING';
+  const trendClr = last7[last7.length-1] > last7[0] ? 'green' : 'red';
+
+  const stats = [
+    { id:'h0', val: fmtV(last.iwmVol),        cls:'cyan',           sub: last.date },
+    { id:'h1', val: pctStr(last.iwmVol,avg20), cls: clrPct(last.iwmVol,avg20), sub:'vs 20-day avg' },
+    { id:'h2', val: pctStr(last.iwmVol,avg252),cls: clrPct(last.iwmVol,avg252), sub:'vs 1-year avg' },
+    { id:'h3', val: last.ratio.toFixed(3),     cls: last.ratio > avg(data.slice(-20).map(d=>d.ratio)) ? 'green':'red', sub:'IWM/SPY vol ratio' },
+    { id:'h4', val: trend,                     cls: trendClr,        sub:'7-day direction' },
+  ];
+
+  stats.forEach((s,i) => {
+    const el = document.getElementById(s.id);
+    el.innerHTML = `<div class="hs-lbl">${el.querySelector('.hs-lbl').textContent}</div><div class="hs-val ${s.cls}">${s.val}</div><div class="hs-sub">${s.sub}</div>`;
+    setTimeout(()=>el.classList.add('ready'), i*80);
+  });
+}
+
+// ── Signal ───────────────────────────────────────────────────────────────────
+function updateSignal(data) {
+  const last   = data[data.length-1];
+  const avg20  = avg(data.slice(-20).map(d=>d.iwmVol));
+  const avgRatio= avg(data.slice(-20).map(d=>d.ratio));
+  const vsAvg  = pct(last.iwmVol, avg20);
+  const ratioUp= last.ratio > avgRatio;
+
+  const el = document.getElementById('signal');
+  el.style.display = 'flex';
+
+  let cls, text;
+  if(vsAvg > 15 && ratioUp) {
+    cls='bull';
+    text=`▲ VOLUME BULLISH — IWM vol is ${vsAvg.toFixed(0)}% above 20-day avg. Small caps gaining market share vs large caps. Favorable conditions for micro cap setups.`;
+  } else if(vsAvg < -15 || !ratioUp && vsAvg < -5) {
+    cls='bear';
+    text=`▼ VOLUME BEARISH — IWM vol is ${Math.abs(vsAvg).toFixed(0)}% below average. Money rotating out of small caps. Wait for vol to confirm before trading.`;
+  } else {
+    cls='neut';
+    text=`◆ VOLUME NEUTRAL — IWM vol ${vsAvg>=0?'+':''}${vsAvg.toFixed(0)}% vs avg. No strong directional flow signal. Watch for expansion above avg line.`;
+  }
+  el.className = 'signal ' + cls;
+  document.getElementById('sigText').textContent = text;
+}
+
+// ── Main bar chart ────────────────────────────────────────────────────────────
+function drawMain(data) {
+  const canvas = document.getElementById('mainCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio||1;
+  const rect = canvas.parentElement.getBoundingClientRect();
+  // Use clientHeight for flex sizing
+  const W = rect.width;
+  const H = Math.max(180, rect.height - 40);
+  canvas.width  = W*dpr; canvas.height = H*dpr;
+  canvas.style.width=W+'px'; canvas.style.height=H+'px';
+  ctx.scale(dpr,dpr);
+  ctx.clearRect(0,0,W,H);
+
+  const pad={t:8,r:16,b:22,l:56};
+  const cw=W-pad.l-pad.r, ch=H-pad.t-pad.b;
+  const vals = data.map(d=>d.iwmVol);
+  const mx = Math.max(...vals)*1.08;
+  const avg20 = avg(data.slice(-20).map(d=>d.iwmVol));
+  const avg252= avg(data.map(d=>d.iwmVol));
+
+  // Y gridlines
+  const yN=5;
+  for(let i=0;i<=yN;i++){
+    const v=(mx/yN)*i;
+    const y=pad.t+ch-(v/mx)*ch;
+    ctx.beginPath(); ctx.moveTo(pad.l,y); ctx.lineTo(pad.l+cw,y);
+    ctx.strokeStyle='#0f1923'; ctx.lineWidth=1; ctx.stroke();
+    ctx.fillStyle=C.m2; ctx.font='9px IBM Plex Mono'; ctx.textAlign='right';
+    ctx.fillText(fmtVs(v), pad.l-6, y+3);
+  }
+
+  // Bars
+  const gutter=Math.max(1, Math.floor(cw/data.length*0.15));
+  const bw = Math.max(1, (cw/data.length)-gutter);
+  vals.forEach((v,i)=>{
+    const x = pad.l + i*(cw/data.length);
+    const bh = (v/mx)*ch;
+    const y  = pad.t+ch-bh;
+    const isLast = i===data.length-1;
+    const isAbove = v > avg20;
+
+    const g = ctx.createLinearGradient(0,y,0,pad.t+ch);
+    if(isLast){
+      g.addColorStop(0,C.cyan); g.addColorStop(1,C.cyan+'18');
+    } else if(isAbove){
+      g.addColorStop(0,C.cyan+'bb'); g.addColorStop(1,C.cyan+'12');
+    } else {
+      g.addColorStop(0,C.muted+'cc'); g.addColorStop(1,C.muted+'18');
+    }
+    ctx.fillStyle=g;
+    ctx.fillRect(x,y,bw,bh);
+    // cap
+    ctx.fillStyle = isLast?C.cyan:(isAbove?C.cyan+'ee':C.muted);
+    ctx.fillRect(x,y,bw,2);
+  });
+
+  // Avg lines
+  const drawAvgLine = (avgVal, color, label) => {
+    const y = pad.t+ch-(avgVal/mx)*ch;
+    ctx.beginPath(); ctx.moveTo(pad.l,y); ctx.lineTo(pad.l+cw,y);
+    ctx.strokeStyle=color; ctx.lineWidth=1;
+    ctx.setLineDash([5,4]); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle=color; ctx.font='9px IBM Plex Mono'; ctx.textAlign='left';
+    ctx.fillText(label+' '+fmtVs(avgVal), pad.l+4, y-3);
+  };
+  drawAvgLine(avg20, C.yellow+'cc', '20D');
+  if(data.length>60) drawAvgLine(avg252, C.m2+'cc', '1Y');
+
+  // X labels — smart density
+  const maxLabels = Math.floor(cw/60);
+  const step = Math.max(1, Math.floor(data.length/maxLabels));
+  data.forEach((d,i)=>{
+    if(i%step===0 || i===data.length-1){
+      const x = pad.l + (i+0.5)*(cw/data.length);
+      const lbl = d.date.slice(5); // MM-DD
+      ctx.fillStyle = i===data.length-1 ? C.cyan : C.m2;
+      ctx.font='8px IBM Plex Mono'; ctx.textAlign='center';
+      ctx.fillText(lbl, x, H-4);
+    }
+  });
+}
+
+// ── Ratio chart ───────────────────────────────────────────────────────────────
+function drawRatio(data) {
+  const canvas = document.getElementById('ratioCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio||1;
+  const W = canvas.parentElement.clientWidth;
+  const H = 80;
+  canvas.width=W*dpr; canvas.height=H*dpr;
+  canvas.style.width=W+'px'; canvas.style.height=H+'px';
+  ctx.scale(dpr,dpr);
+  ctx.clearRect(0,0,W,H);
+
+  const pad={t:4,r:16,b:18,l:50};
+  const cw=W-pad.l-pad.r, ch=H-pad.t-pad.b;
+  const vals=data.map(d=>d.ratio);
+  const mn=Math.min(...vals)*0.92, mx=Math.max(...vals)*1.08;
+  const avgR=avg(vals);
+
+  const pts = vals.map((v,i)=>({
+    x: pad.l+(i/(vals.length-1))*cw,
+    y: pad.t+ch-((v-mn)/(mx-mn))*ch
+  }));
+
+  // Fill
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pad.t+ch);
+  pts.forEach(p=>ctx.lineTo(p.x,p.y));
+  ctx.lineTo(pts[pts.length-1].x, pad.t+ch);
+  ctx.closePath();
+  const g=ctx.createLinearGradient(0,pad.t,0,pad.t+ch);
+  g.addColorStop(0,C.green+'44'); g.addColorStop(1,C.green+'00');
+  ctx.fillStyle=g; ctx.fill();
+
+  // Line
+  ctx.beginPath();
+  pts.forEach((p,i)=>i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y));
+  ctx.strokeStyle=C.green; ctx.lineWidth=1.5; ctx.stroke();
+
+  // Avg line
+  const ay=pad.t+ch-((avgR-mn)/(mx-mn))*ch;
+  ctx.beginPath(); ctx.moveTo(pad.l,ay); ctx.lineTo(pad.l+cw,ay);
+  ctx.strokeStyle=C.yellow+'88'; ctx.lineWidth=1;
+  ctx.setLineDash([4,3]); ctx.stroke(); ctx.setLineDash([]);
+
+  // Y labels
+  [mn,avgR,mx].forEach(v=>{
+    const y=pad.t+ch-((v-mn)/(mx-mn))*ch;
+    ctx.fillStyle=C.m2; ctx.font='8px IBM Plex Mono'; ctx.textAlign='right';
+    ctx.fillText(v.toFixed(3), pad.l-4, y+3);
+  });
+
+  // Latest dot
+  const last=pts[pts.length-1];
+  ctx.beginPath(); ctx.arc(last.x,last.y,3,0,Math.PI*2);
+  ctx.fillStyle=C.green; ctx.fill();
+
+  // X labels
+  const step=Math.max(1,Math.floor(data.length/6));
+  data.forEach((d,i)=>{
+    if(i%step===0||i===data.length-1){
+      const x=pad.l+(i/(vals.length-1))*cw;
+      ctx.fillStyle=i===data.length-1?C.green:C.muted;
+      ctx.font='8px IBM Plex Mono'; ctx.textAlign='center';
+      ctx.fillText(d.date.slice(5), x, H-2);
+    }
+  });
+}
+
+// ── Day strip ─────────────────────────────────────────────────────────────────
+function renderStrip(data) {
+  const last20 = data.slice(-20);
+  const mx=Math.max(...last20.map(d=>d.iwmVol));
+  const avgR=avg(last20.map(d=>d.ratio));
+
+  document.getElementById('strip').innerHTML = [...last20].reverse().map((d,i)=>{
+    const isNow=i===0;
+    const fill=((d.iwmVol/mx)*100).toFixed(0);
+    const rc = d.ratio > avgR*1.05 ? C.green : d.ratio < avgR*0.95 ? C.red : C.yellow;
+    return `<div class="dc ${isNow?'now':''}">
+      <div class="dc-date">${d.date.slice(5)}</div>
+      <div class="dc-vol">${fmtVs(d.iwmVol)}</div>
+      <div class="dc-pct" style="color:${rc}">${d.ratio.toFixed(3)}</div>
+      <div class="dc-bar"><div class="dc-fill" style="width:${fill}%"></div></div>
+    </div>`;
+  }).join('');
+}
+
+// ── Weekly rows ───────────────────────────────────────────────────────────────
+function renderWeekRows(data) {
+  // Group into weeks (Mon-Fri)
+  const weeks = [];
+  let cur = [];
+  data.forEach((d,i)=>{
+    cur.push(d);
+    const next = data[i+1];
+    const dDate = new Date(d.ts);
+    const nDate = next ? new Date(next.ts) : null;
+    // New week if next day is Monday or end of data
+    if(!next || (nDate.getDay() <= dDate.getDay() && nDate.getDay() !== 0)) {
+      weeks.push([...cur]); cur=[];
+    }
+  });
+
+  const last16 = weeks.slice(-16).reverse();
+  const avgWeekVol = avg(last16.map(w=>avg(w.map(d=>d.iwmVol))));
+
+  document.getElementById('weekRows').innerHTML = last16.map(w=>{
+    const wAvg = avg(w.map(d=>d.iwmVol));
+    const p = pct(wAvg, avgWeekVol);
+    const badge = p>10?'UP':p<-10?'DOWN':'FLAT';
+    return `<div class="wr">
+      <span class="wr-date">${w[0].date.slice(5)}</span>
+      <span class="wr-vol">${fmtVs(wAvg)}</span>
+      <span class="wr-badge ${badge}">${badge}</span>
+    </div>`;
+  }).join('');
+}
+
+// ── Trend score ───────────────────────────────────────────────────────────────
+function updateTrendScore(data) {
+  const last  = data[data.length-1];
+  const avg5  = avg(data.slice(-5).map(d=>d.iwmVol));
+  const avg20 = avg(data.slice(-20).map(d=>d.iwmVol));
+  const avg60 = avg(data.slice(-60).map(d=>d.iwmVol));
+  const avgRatio20 = avg(data.slice(-20).map(d=>d.ratio));
+
+  let score = 50;
+  if(last.iwmVol > avg20) score += 15;
+  if(last.iwmVol > avg60) score += 10;
+  if(avg5 > avg20) score += 15;
+  if(last.ratio > avgRatio20) score += 10;
+  score = Math.min(100, Math.max(0, score));
+
+  const color = score>=70?C.green:score>=40?C.yellow:C.red;
+  const label = score>=70?'BULLISH FLOW':score>=40?'NEUTRAL FLOW':'BEARISH FLOW';
+
+  document.getElementById('trendScore').textContent = score;
+  document.getElementById('trendScore').style.color = color;
+  document.getElementById('trendLabel').textContent = label;
+  document.getElementById('trendLabel').style.color = C.m2;
+
+  document.getElementById('trendBars').innerHTML = [
+    { lbl:'vs 20D avg', val: Math.min(100, Math.max(0, 50+pct(last.iwmVol,avg20))), raw: pctStr(last.iwmVol,avg20) },
+    { lbl:'vs 60D avg', val: Math.min(100, Math.max(0, 50+pct(last.iwmVol,avg60))), raw: pctStr(last.iwmVol,avg60) },
+    { lbl:'5D vs 20D',  val: Math.min(100, Math.max(0, 50+pct(avg5,avg20))),        raw: pctStr(avg5,avg20) },
+    { lbl:'IWM/SPY',    val: Math.min(100, Math.max(0, 50+pct(last.ratio,avgRatio20)*200)), raw: last.ratio.toFixed(3) },
+  ].map(b=>`
+    <div class="tb-row">
+      <div class="tb-lbl">${b.lbl}</div>
+      <div class="tb-track"><div class="tb-fill" style="width:${b.val}%"></div></div>
+      <div class="tb-val">${b.raw}</div>
+    </div>
+  `).join('');
+}
+
+// ── Confluence text ───────────────────────────────────────────────────────────
+function updateConf(data) {
+  const last   = data[data.length-1];
+  const avg20  = avg(data.slice(-20).map(d=>d.iwmVol));
+  const avgR20 = avg(data.slice(-20).map(d=>d.ratio));
+  const vsAvg  = pct(last.iwmVol, avg20);
+  const ratioUp= last.ratio > avgR20;
+
+  let html;
+  if(vsAvg > 15 && ratioUp) {
+    html = `<span class="go">GREEN LIGHT.</span> Small cap vol is <span class="hi">${vsAvg.toFixed(0)}% above average</span> and the IWM/SPY ratio is rising — money is flowing into your universe. <span class="go">High confidence to be active.</span>`;
+  } else if(vsAvg > 5 && ratioUp) {
+    html = `<span class="maybe">LEANING BULLISH.</span> Vol is <span class="hi">slightly above average</span> with improving ratio. OK to trade, but size down until vol expands further.`;
+  } else if(vsAvg < -15) {
+    html = `<span class="no">STAND DOWN.</span> Vol is <span class="no">${Math.abs(vsAvg).toFixed(0)}% below average</span>. Market attention is elsewhere. Wait for vol to return before participating.`;
+  } else if(!ratioUp && vsAvg < 0) {
+    html = `<span class="no">CAUTION.</span> IWM/SPY ratio is declining — large caps absorbing attention. Small cap vol is subdued. <span class="maybe">Reduce size, be selective.</span>`;
+  } else {
+    html = `<span class="maybe">NEUTRAL.</span> Vol is near average at <span class="hi">${pctStr(last.iwmVol, avg20)}</span>. No strong flow signal. Watch for the ratio and vol to break above the 20D average together.`;
+  }
+
+  document.getElementById('confText').innerHTML = html;
+}
+
+// ── Util ──────────────────────────────────────────────────────────────────────
+function avg(arr) { return arr.reduce((a,b)=>a+b,0)/arr.length; }
+function setLD(pct, status) {
+  document.getElementById('ldFill').style.width = pct+'%';
+  document.getElementById('ldStatus').textContent = status;
+}
+function showErr(msg) {
+  document.getElementById('loader').classList.add('gone');
+  const e = document.getElementById('errBox');
+  e.style.display='block';
+  e.textContent = '⚠ '+msg;
+}
+
+window.addEventListener('resize', ()=>{ if(ALL_DATA.length) renderAll(); });
+loadData();
+</script>
+</body>
+</html>
