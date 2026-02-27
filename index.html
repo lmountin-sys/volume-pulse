@@ -365,7 +365,9 @@
 
 <script>
 const KEY = 'aefQjcStxBnOQPsl3nMrtYDlrbmdCCPi';
-const CACHE_KEY = 'volpulse_v3';
+const CACHE_KEY = 'volpulse_v4';
+const SB_URL = 'https://swftfhvbdqzvlnaphrzg.supabase.co';
+const SB_KEY = 'sb_publishable_4uaSstypcI-3Wt36AWALUA_UDUCR0qH';
 const C = { cyan:'#00d4ff', green:'#00e5a0', yellow:'#f0b429', red:'#e05252', muted:'#3a4e60', m2:'#5a7080', b2:'#1c2a38' };
 
 let ALL_DATA = []; // full 2yr array [{date, iwmVol, spyVol, ratio, iwmClose, spyClose}]
@@ -407,82 +409,151 @@ async function fetchTicker(ticker, from, to) {
   return [];
 }
 
+// ── Supabase helpers ──────────────────────────────────────────────────────────
+async function sbFetch(path, opts={}) {
+  const res = await fetch(SB_URL + '/rest/v1/' + path, {
+    headers: {
+      'apikey': SB_KEY,
+      'Authorization': 'Bearer ' + SB_KEY,
+      'Content-Type': 'application/json',
+      'Prefer': opts.prefer || '',
+      ...opts.headers
+    },
+    method: opts.method || 'GET',
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+  if(opts.method === 'POST') return res.ok;
+  return res.json();
+}
+
+async function loadFromSupabase() {
+  // Load all rows sorted ascending
+  const rows = await sbFetch('volume_data?select=*&order=date.asc&limit=2000');
+  if(!Array.isArray(rows) || rows.length === 0) return [];
+  return rows.map(r => ({
+    ts: new Date(r.date).getTime(),
+    date: r.date,
+    iwmVol: parseFloat(r.iwm_vol),
+    spyVol: parseFloat(r.spy_vol),
+    ratio:  parseFloat(r.ratio),
+    iwmClose: parseFloat(r.iwm_close),
+    spyClose: parseFloat(r.spy_close),
+  }));
+}
+
+async function saveToSupabase(rows) {
+  if(!rows.length) return;
+  const payload = rows.map(r => ({
+    date:      r.date,
+    iwm_vol:   r.iwmVol,
+    spy_vol:   r.spyVol,
+    ratio:     r.ratio,
+    iwm_close: r.iwmClose,
+    spy_close: r.spyClose,
+  }));
+  // upsert in batches of 100
+  for(let i=0; i<payload.length; i+=100) {
+    await sbFetch('volume_data', {
+      method: 'POST',
+      prefer: 'resolution=merge-duplicates',
+      headers: { 'Prefer': 'resolution=merge-duplicates' },
+      body: payload.slice(i, i+100),
+    });
+  }
+}
+
 // ── Load & merge ─────────────────────────────────────────────────────────────
 async function loadData() {
-  setLD(10, 'checking cache...');
+  setLD(5, 'checking database...');
 
-  // Check localStorage cache (refreshed daily)
-  const cached = loadCache();
-  if(cached) {
-    ALL_DATA = cached;
-    setLD(100, 'loaded from cache');
-    setTimeout(boot, 200);
-    return;
-  }
-
-  setLD(15, 'fetching IWM (small cap ETF)...');
-  const from = daysAgo(520); // ~2 years + buffer
-  const to   = today();
-
-  let iwmRaw, spyRaw;
+  // 1. Load what we already have in Supabase
+  let existing = [];
   try {
-    iwmRaw = await fetchTicker('IWM', from, to);
-    setLD(55, 'fetching SPY (market proxy)...');
-    await new Promise(r => setTimeout(r, 250)); // rate limit buffer
-    spyRaw = await fetchTicker('SPY', from, to);
-  } catch(e) {
-    showErr('Network error fetching data. Make sure you opened this file in a browser (not the Claude preview). ' + e.message);
-    return;
+    existing = await loadFromSupabase();
+  } catch(e) {}
+
+  // 2. Figure out what date range we still need from Polygon
+  const lastStored = existing.length ? existing[existing.length-1].date : null;
+  const polyFrom = lastStored
+    ? (() => { const d=new Date(lastStored); d.setDate(d.getDate()+1); return d.toISOString().split('T')[0]; })()
+    : daysAgo(520); // first ever load — get full 2 years
+  const polyTo = today();
+
+  let newRows = [];
+  if(polyFrom <= polyTo) {
+    setLD(existing.length ? 30 : 15,
+      existing.length
+        ? `DB has ${existing.length} days — fetching ${lastStored} → ${polyTo}...`
+        : 'First load — fetching 2 years from Polygon...'
+    );
+
+    try {
+      const iwmRaw = await fetchTicker('IWM', polyFrom, polyTo);
+      setLD(55, 'fetching SPY...');
+      await new Promise(r => setTimeout(r, 250));
+      const spyRaw = await fetchTicker('SPY', polyFrom, polyTo);
+
+      const spyMap = {};
+      spyRaw.forEach(d => { spyMap[d.t] = d; });
+
+      iwmRaw.forEach(d => {
+        const spy = spyMap[d.t];
+        if(!spy) return;
+        const iwmVol = d.v * d.vw;
+        const spyVol = spy.v * spy.vw;
+        newRows.push({
+          ts: d.t,
+          date: new Date(d.t).toISOString().split('T')[0],
+          iwmVol, spyVol,
+          ratio: spyVol > 0 ? iwmVol/spyVol : 0,
+          iwmClose: d.c,
+          spyClose: spy.c,
+        });
+      });
+
+      newRows.sort((a,b) => a.ts - b.ts);
+    } catch(e) {
+      if(!existing.length) {
+        showErr('Could not load data from Polygon: ' + e.message);
+        return;
+      }
+      // If we have existing data, continue with just that
+    }
+
+    // 3. Save new rows to Supabase
+    if(newRows.length) {
+      setLD(80, `saving ${newRows.length} new days to database...`);
+      try { await saveToSupabase(newRows); } catch(e) {}
+    }
+  } else {
+    setLD(70, 'database is up to date');
   }
 
-  setLD(85, 'merging & calculating...');
+  // 4. Merge existing + new, dedupe, sort
+  const allMerged = [...existing, ...newRows];
+  const seen = new Set();
+  ALL_DATA = allMerged
+    .filter(d => { if(seen.has(d.date)) return false; seen.add(d.date); return true; })
+    .sort((a,b) => a.date.localeCompare(b.date));
 
-  // Build lookup
-  const spyMap = {};
-  spyRaw.forEach(d => { spyMap[d.t] = d; });
+  // Also save to localStorage for instant same-day loads
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify({
+      date: new Date().toDateString(),
+      data: ALL_DATA
+    }));
+  } catch(e) {}
 
-  // Merge on date
-  const merged = [];
-  iwmRaw.forEach(d => {
-    const spy = spyMap[d.t];
-    if(!spy) return;
-    const iwmVol = d.v * d.vw;
-    const spyVol = spy.v * spy.vw;
-    merged.push({
-      ts: d.t,
-      date: new Date(d.t).toISOString().split('T')[0],
-      iwmVol,
-      spyVol,
-      ratio: spyVol > 0 ? iwmVol / spyVol : 0,
-      iwmClose: d.c,
-      spyClose: spy.c,
-    });
-  });
-
-  // Sort ascending
-  merged.sort((a,b) => a.ts - b.ts);
-
-  // Keep last ~504 trading days
-  ALL_DATA = merged.slice(-504);
-  saveCache(ALL_DATA);
-
-  setLD(100, `loaded ${ALL_DATA.length} trading days`);
+  setLD(100, `${ALL_DATA.length} trading days loaded`);
   setTimeout(boot, 300);
 }
 
-// ── Cache ────────────────────────────────────────────────────────────────────
-function saveCache(data) {
-  try {
-    const payload = { date: new Date().toDateString(), data };
-    localStorage.setItem(CACHE_KEY, JSON.stringify(payload));
-  } catch(e) {}
-}
-function loadCache() {
+// ── Local cache (same-day speed) ─────────────────────────────────────────────
+function checkLocalCache() {
   try {
     const raw = localStorage.getItem(CACHE_KEY);
     if(!raw) return null;
     const p = JSON.parse(raw);
-    // Invalidate if not from today
     if(p.date !== new Date().toDateString()) return null;
     return p.data;
   } catch(e) { return null; }
@@ -493,6 +564,58 @@ function boot() {
   document.getElementById('loader').classList.add('gone');
   document.getElementById('hdrMeta').textContent = 'Updated ' + new Date().toLocaleTimeString();
   renderAll();
+}
+
+// ── Init — check local cache first, then Supabase ────────────────────────────
+async function init() {
+  const cached = checkLocalCache();
+  if(cached && cached.length) {
+    ALL_DATA = cached;
+    setLD(100, 'loaded from cache');
+    boot();
+    // Silently sync any new days in background
+    syncNewDays();
+    return;
+  }
+  await loadData();
+}
+
+async function syncNewDays() {
+  try {
+    const lastDate = ALL_DATA[ALL_DATA.length-1].date;
+    const nextDay = (() => { const d=new Date(lastDate); d.setDate(d.getDate()+1); return d.toISOString().split('T')[0]; })();
+    const todayStr = today();
+    if(nextDay > todayStr) return; // already up to date
+
+    const iwmRaw = await fetchTicker('IWM', nextDay, todayStr);
+    await new Promise(r => setTimeout(r, 250));
+    const spyRaw = await fetchTicker('SPY', nextDay, todayStr);
+    const spyMap = {};
+    spyRaw.forEach(d => { spyMap[d.t] = d; });
+
+    const newRows = [];
+    iwmRaw.forEach(d => {
+      const spy = spyMap[d.t];
+      if(!spy) return;
+      const iwmVol = d.v * d.vw;
+      const spyVol = spy.v * spy.vw;
+      newRows.push({
+        ts: d.t,
+        date: new Date(d.t).toISOString().split('T')[0],
+        iwmVol, spyVol,
+        ratio: spyVol > 0 ? iwmVol/spyVol : 0,
+        iwmClose: d.c, spyClose: spy.c,
+      });
+    });
+
+    if(newRows.length) {
+      ALL_DATA = [...ALL_DATA, ...newRows].sort((a,b)=>a.date.localeCompare(b.date));
+      await saveToSupabase(newRows);
+      try { localStorage.setItem(CACHE_KEY, JSON.stringify({ date: new Date().toDateString(), data: ALL_DATA })); } catch(e){}
+      renderAll(); // refresh display with new data
+      document.getElementById('hdrMeta').textContent = 'Updated ' + new Date().toLocaleTimeString();
+    }
+  } catch(e) {}
 }
 
 function getView() {
@@ -847,7 +970,7 @@ function showErr(msg) {
 }
 
 window.addEventListener('resize', ()=>{ if(ALL_DATA.length) renderAll(); });
-loadData();
+init();
 </script>
 </body>
 </html>
